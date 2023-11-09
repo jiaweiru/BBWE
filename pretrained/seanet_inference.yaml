@@ -1,0 +1,18 @@
+device: cpu
+ckpt_path: /home/sturjw/Code/BandWidthExtension/results/Valentini/SEANet/8_16/baseline/save/CKPT+2023-11-07+20-07-57+00/generator.ckpt
+
+original_sr: 8000
+target_sr: 16000
+
+model: !new:models.SEANet
+    original_sr: !ref <original_sr>
+    target_sr: !ref <target_sr>
+
+modules:
+    bwe_model: !ref <model>
+
+pretrainer: !new:speechbrain.utils.parameter_transfer.Pretrainer
+    loadables:
+        bwe_model: !ref <model>
+    paths:
+        bwe_model: !ref <ckpt_path>
