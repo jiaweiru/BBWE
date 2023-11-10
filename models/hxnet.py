@@ -2,7 +2,8 @@ import typing as tp
 
 import torch
 import torchaudio
-from torch import nn
+from torch import nn, sin, pow
+from torch.nn import Parameter
 from torch.nn.utils import weight_norm
 
 LRELU_SLOPE = 0.1
@@ -16,13 +17,91 @@ def WNConvTranspose1d(*args, **kwargs):
     return weight_norm(nn.ConvTranspose1d(*args, **kwargs))
 
 
+def get_activation(act, channels=None):
+    assert act in [
+        "LeakyReLU",
+        "ELU",
+        "Snake",
+        "SnakeBeta",
+    ], "activation incorrectly specified."
+    if act == "LeakyReLU":
+        return nn.LeakyReLU(LRELU_SLOPE)
+    elif act == "ELU":
+        return nn.ELU()
+    elif act == "Snake":
+        return Snake(channels, alpha_logscale=True)
+    elif act == "SnakeBeta":
+        return SnakeBeta(channels, alpha_logscale=True)
+
+
+class Snake(nn.Module):
+    def __init__(
+        self, in_features, alpha=1.0, alpha_trainable=True, alpha_logscale=False
+    ):
+        super(Snake, self).__init__()
+        self.in_features = in_features
+
+        # initialize alpha
+        self.alpha_logscale = alpha_logscale
+        if self.alpha_logscale:  # log scale alphas initialized to zeros
+            self.alpha = Parameter(torch.zeros(in_features) * alpha)
+        else:  # linear scale alphas initialized to ones
+            self.alpha = Parameter(torch.ones(in_features) * alpha)
+
+        self.alpha.requires_grad = alpha_trainable
+
+        self.no_div_by_zero = 0.000000001
+
+    def forward(self, x):
+        alpha = self.alpha.unsqueeze(0).unsqueeze(-1)  # line up with x to [B, C, T]
+        if self.alpha_logscale:
+            alpha = torch.exp(alpha)
+        x = x + (1.0 / (alpha + self.no_div_by_zero)) * pow(sin(x * alpha), 2)
+
+        return x
+
+
+class SnakeBeta(nn.Module):
+    def __init__(
+        self, in_features, alpha=1.0, alpha_trainable=True, alpha_logscale=False
+    ):
+        super(SnakeBeta, self).__init__()
+        self.in_features = in_features
+
+        # initialize alpha
+        self.alpha_logscale = alpha_logscale
+        if self.alpha_logscale:  # log scale alphas initialized to zeros
+            self.alpha = Parameter(torch.zeros(in_features) * alpha)
+            self.beta = Parameter(torch.zeros(in_features) * alpha)
+        else:  # linear scale alphas initialized to ones
+            self.alpha = Parameter(torch.ones(in_features) * alpha)
+            self.beta = Parameter(torch.ones(in_features) * alpha)
+
+        self.alpha.requires_grad = alpha_trainable
+        self.beta.requires_grad = alpha_trainable
+
+        self.no_div_by_zero = 0.000000001
+
+    def forward(self, x):
+        alpha = self.alpha.unsqueeze(0).unsqueeze(-1)  # line up with x to [B, C, T]
+        beta = self.beta.unsqueeze(0).unsqueeze(-1)
+        if self.alpha_logscale:
+            alpha = torch.exp(alpha)
+            beta = torch.exp(beta)
+        x = x + (1.0 / (beta + self.no_div_by_zero)) * pow(sin(x * alpha), 2)
+
+        return x
+
+
 class ResBlock(torch.nn.Module):
-    def __init__(self, channels: int, kernel_size: int, dilation: tp.Tuple[int]):
+    def __init__(
+        self, channels: int, kernel_size: int, dilation: tp.Tuple[int], act: str
+    ):
         super().__init__()
         self.convs1 = nn.ModuleList(
             [
                 nn.Sequential(
-                    nn.LeakyReLU(LRELU_SLOPE),
+                    get_activation(act, channels),
                     WNConv1d(
                         channels,
                         channels,
@@ -33,7 +112,7 @@ class ResBlock(torch.nn.Module):
                     ),
                 ),
                 nn.Sequential(
-                    nn.LeakyReLU(LRELU_SLOPE),
+                    get_activation(act, channels),
                     WNConv1d(
                         channels,
                         channels,
@@ -44,7 +123,7 @@ class ResBlock(torch.nn.Module):
                     ),
                 ),
                 nn.Sequential(
-                    nn.LeakyReLU(LRELU_SLOPE),
+                    get_activation(act, channels),
                     WNConv1d(
                         channels,
                         channels,
@@ -60,15 +139,15 @@ class ResBlock(torch.nn.Module):
         self.convs2 = nn.ModuleList(
             [
                 nn.Sequential(
-                    nn.LeakyReLU(LRELU_SLOPE),
+                    get_activation(act, channels),
                     WNConv1d(channels, channels, kernel_size, 1, padding="same"),
                 ),
                 nn.Sequential(
-                    nn.LeakyReLU(LRELU_SLOPE),
+                    get_activation(act, channels),
                     WNConv1d(channels, channels, kernel_size, 1, padding="same"),
                 ),
                 nn.Sequential(
-                    nn.LeakyReLU(LRELU_SLOPE),
+                    get_activation(act, channels),
                     WNConv1d(channels, channels, kernel_size, 1, padding="same"),
                 ),
             ]
@@ -88,10 +167,11 @@ class MRF(nn.Module):
         channels: int,
         kernel_size: tp.Tuple[int],
         dilation: tp.Tuple[tp.Tuple[int]],
+        act: str,
     ):
         super().__init__()
         self.mrf = nn.ModuleList(
-            [ResBlock(channels, k, d) for k, d in zip(kernel_size, dilation)]
+            [ResBlock(channels, k, d, act) for k, d in zip(kernel_size, dilation)]
         )
 
     def forward(self, x):
@@ -111,12 +191,13 @@ class EncBlock(nn.Module):
         stride: int,
         kernel_size: tp.Tuple[int],
         dilation: tp.Tuple[tp.Tuple[int]],
+        act: str,
     ):
         super().__init__()
 
-        self.mrf = MRF(out_channels // 2, kernel_size, dilation)
+        self.mrf = MRF(out_channels // 2, kernel_size, dilation, act)
         self.conv = nn.Sequential(
-            nn.LeakyReLU(LRELU_SLOPE),
+            get_activation(act, out_channels // 2),
             WNConv1d(
                 in_channels=out_channels // 2,
                 out_channels=out_channels,
@@ -140,12 +221,13 @@ class DecBlock(nn.Module):
         stride: int,
         kernel_size: tp.Tuple[int],
         dilation: tp.Tuple[tp.Tuple[int]],
+        act: str,
     ):
         super().__init__()
 
-        self.mrf = MRF(out_channels, kernel_size, dilation)
+        self.mrf = MRF(out_channels, kernel_size, dilation, act)
         self.conv_trans = nn.Sequential(
-            nn.LeakyReLU(LRELU_SLOPE),
+            get_activation(act, 2 * out_channels),
             WNConvTranspose1d(
                 in_channels=2 * out_channels,
                 out_channels=out_channels,
@@ -174,6 +256,7 @@ class HXNet(nn.Module):
         block_strides: tp.Tuple[int] = (2, 2, 8, 8),
         mrf_kernel_size: tp.Tuple[int] = (3, 7, 11),
         dilation: tp.Tuple[tp.Tuple[int]] = ((1, 3, 5), (1, 3, 5), (1, 3, 5)),
+        act: str = "LeakyReLU",
     ):
         """U-net structure for time-domain bandwidth expansion network, where
         the decoder structure is derived from the same upsampling + MRF
@@ -194,6 +277,8 @@ class HXNet(nn.Module):
                 MRF. Defaults to (3, 7, 11).
             dilation (tp.Tuple[tp.Tuple[int]], optional):The dilation in the
                 MRF. Defaults to ((1, 3, 5), (1, 3, 5), (1, 3, 5)).
+            act (str, optional): Activation before convolution. Defaults to
+                "LeakyReLU".
         """
         super().__init__()
         self.original_sr = original_sr
@@ -215,13 +300,14 @@ class HXNet(nn.Module):
                     stride=block_strides[i],
                     kernel_size=mrf_kernel_size,
                     dilation=dilation,
+                    act=act,
                 )
                 for i in range(len(block_strides))
             ]
         )
 
         self.latent_conv = nn.Sequential(
-            nn.LeakyReLU(LRELU_SLOPE),
+            get_activation(act, block_channels[-1]),
             WNConv1d(
                 in_channels=block_channels[-1],
                 out_channels=latent_channel,
@@ -230,7 +316,7 @@ class HXNet(nn.Module):
                 # bias=False,
                 padding_mode="reflect",
             ),
-            nn.LeakyReLU(LRELU_SLOPE),
+            get_activation(act, latent_channel),
             # This activation function may need to be ignored in neural coding
             WNConv1d(
                 in_channels=latent_channel,
@@ -249,13 +335,14 @@ class HXNet(nn.Module):
                     stride=block_strides[-i - 1],
                     kernel_size=mrf_kernel_size,
                     dilation=dilation,
+                    act=act,
                 )
                 for i in range(len(block_strides))
             ]
         )
 
         self.last_conv = nn.Sequential(
-            nn.LeakyReLU(LRELU_SLOPE),
+            get_activation(act, block_channels[0]),
             WNConv1d(
                 in_channels=block_channels[0],
                 out_channels=1,
