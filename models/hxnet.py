@@ -1,263 +1,312 @@
-# 激活函数 LReLU ELU Snake1d
-#
-class ResBlock1(torch.nn.Module):
-    def __init__(self, channels, kernel_size=3, dilation=(1, 3, 5)):
+import typing as tp
+
+import torch
+import torchaudio
+from torch import nn
+from torch.nn.utils import weight_norm
+
+LRELU_SLOPE = 0.1
+
+
+def WNConv1d(*args, **kwargs):
+    return weight_norm(nn.Conv1d(*args, **kwargs))
+
+
+def WNConvTranspose1d(*args, **kwargs):
+    return weight_norm(nn.ConvTranspose1d(*args, **kwargs))
+
+
+class ResBlock(torch.nn.Module):
+    def __init__(self, channels: int, kernel_size: int, dilation: tp.Tuple[int]):
         super().__init__()
         self.convs1 = nn.ModuleList(
             [
-                weight_norm(
-                    Conv1d(
+                nn.Sequential(
+                    nn.LeakyReLU(LRELU_SLOPE),
+                    WNConv1d(
                         channels,
                         channels,
                         kernel_size,
                         1,
                         dilation=dilation[0],
-                        padding=get_padding(kernel_size, dilation[0]),
-                    )
+                        padding="same",
+                    ),
                 ),
-                weight_norm(
-                    Conv1d(
+                nn.Sequential(
+                    nn.LeakyReLU(LRELU_SLOPE),
+                    WNConv1d(
                         channels,
                         channels,
                         kernel_size,
                         1,
                         dilation=dilation[1],
-                        padding=get_padding(kernel_size, dilation[1]),
-                    )
+                        padding="same",
+                    ),
                 ),
-                weight_norm(
-                    Conv1d(
+                nn.Sequential(
+                    nn.LeakyReLU(LRELU_SLOPE),
+                    WNConv1d(
                         channels,
                         channels,
                         kernel_size,
                         1,
                         dilation=dilation[2],
-                        padding=get_padding(kernel_size, dilation[2]),
-                    )
+                        padding="same",
+                    ),
                 ),
             ]
         )
 
         self.convs2 = nn.ModuleList(
             [
-                weight_norm(
-                    Conv1d(
-                        channels,
-                        channels,
-                        kernel_size,
-                        1,
-                        dilation=1,
-                        padding=get_padding(kernel_size, 1),
-                    )
+                nn.Sequential(
+                    nn.LeakyReLU(LRELU_SLOPE),
+                    WNConv1d(channels, channels, kernel_size, 1, padding="same"),
                 ),
-                weight_norm(
-                    Conv1d(
-                        channels,
-                        channels,
-                        kernel_size,
-                        1,
-                        dilation=1,
-                        padding=get_padding(kernel_size, 1),
-                    )
+                nn.Sequential(
+                    nn.LeakyReLU(LRELU_SLOPE),
+                    WNConv1d(channels, channels, kernel_size, 1, padding="same"),
                 ),
-                weight_norm(
-                    Conv1d(
-                        channels,
-                        channels,
-                        kernel_size,
-                        1,
-                        dilation=1,
-                        padding=get_padding(kernel_size, 1),
-                    )
+                nn.Sequential(
+                    nn.LeakyReLU(LRELU_SLOPE),
+                    WNConv1d(channels, channels, kernel_size, 1, padding="same"),
                 ),
             ]
         )
 
     def forward(self, x):
-        """
-        Args:
-            x (Tensor): input tensor.
-        Returns:
-            Tensor: output tensor.
-        Shapes:
-            x: [B, C, T]
-        """
         for c1, c2 in zip(self.convs1, self.convs2):
-            xt = F.leaky_relu(x, LRELU_SLOPE)
-            xt = c1(xt)
-            xt = F.leaky_relu(xt, LRELU_SLOPE)
+            xt = c1(x)
             xt = c2(xt)
             x = xt + x
         return x
 
-    def remove_weight_norm(self):
-        for l in self.convs1:
-            remove_weight_norm(l)
-        for l in self.convs2:
-            remove_weight_norm(l)
 
-
-class ResBlock2(torch.nn.Module):
-    """Residual Block Type 2. It has 1 convolutional layers in each convolutional block.
-
-    Network::
-
-        x -> lrelu -> conv1-> -> z -> lrelu -> conv2-> o -> + -> o
-        |---------------------------------------------------|
-
-
-    Args:
-        channels (int): number of hidden channels for the convolutional layers.
-        kernel_size (int): size of the convolution filter in each layer.
-        dilations (list): list of dilation value for each conv layer in a block.
-    """
-
-    def __init__(self, channels, kernel_size=3, dilation=(1, 3)):
+class MRF(nn.Module):
+    def __init__(
+        self,
+        channels: int,
+        kernel_size: tp.Tuple[int],
+        dilation: tp.Tuple[tp.Tuple[int]],
+    ):
         super().__init__()
-        self.convs = nn.ModuleList(
-            [
-                weight_norm(
-                    Conv1d(
-                        channels,
-                        channels,
-                        kernel_size,
-                        1,
-                        dilation=dilation[0],
-                        padding=get_padding(kernel_size, dilation[0]),
-                    )
-                ),
-                weight_norm(
-                    Conv1d(
-                        channels,
-                        channels,
-                        kernel_size,
-                        1,
-                        dilation=dilation[1],
-                        padding=get_padding(kernel_size, dilation[1]),
-                    )
-                ),
-            ]
+        self.mrf = nn.ModuleList(
+            [ResBlock(channels, k, d) for k, d in zip(kernel_size, dilation)]
         )
 
     def forward(self, x):
-        for c in self.convs:
-            xt = F.leaky_relu(x, LRELU_SLOPE)
-            xt = c(xt)
-            x = xt + x
-        return x
-
-    def remove_weight_norm(self):
-        for l in self.convs:
-            remove_weight_norm(l)
+        z = None
+        for res_block in self.mrf:
+            if z is None:
+                z = res_block(x)
+            else:
+                z += res_block(x)
+        return z / len(self.mrf)
 
 
-class HifiganGenerator(torch.nn.Module):
+class EncBlock(nn.Module):
     def __init__(
         self,
-        in_channels,
-        out_channels,
-        resblock_type,
-        resblock_dilation_sizes,
-        resblock_kernel_sizes,
-        upsample_kernel_sizes,
-        upsample_initial_channel,
-        upsample_factors,
-        inference_padding=5,
-        cond_channels=0,
-        conv_pre_weight_norm=True,
-        conv_post_weight_norm=True,
-        conv_post_bias=True,
+        out_channels: int,
+        stride: int,
+        kernel_size: tp.Tuple[int],
+        dilation: tp.Tuple[tp.Tuple[int]],
     ):
-        r"""HiFiGAN Generator with Multi-Receptive Field Fusion (MRF)
+        super().__init__()
 
-        Network:
-            x -> lrelu -> upsampling_layer -> resblock1_k1x1 -> z1 -> + -> z_sum / #resblocks -> lrelu -> conv_post_7x1 -> tanh -> o
-                                                 ..          -> zI ---|
-                                              resblockN_kNx1 -> zN ---'
+        self.mrf = MRF(out_channels // 2, kernel_size, dilation)
+        self.conv = nn.Sequential(
+            nn.LeakyReLU(LRELU_SLOPE),
+            WNConv1d(
+                in_channels=out_channels // 2,
+                out_channels=out_channels,
+                kernel_size=2 * stride,
+                stride=stride,
+                padding=stride // 2,
+                # bias=False,
+                padding_mode="reflect",
+            ),  # only for in_channels=out_channels // 2
+        )
+
+    def forward(self, x):
+        out = self.conv(self.mrf(x))
+        return out
+
+
+class DecBlock(nn.Module):
+    def __init__(
+        self,
+        out_channels: int,
+        stride: int,
+        kernel_size: tp.Tuple[int],
+        dilation: tp.Tuple[tp.Tuple[int]],
+    ):
+        super().__init__()
+
+        self.mrf = MRF(out_channels, kernel_size, dilation)
+        self.conv_trans = nn.Sequential(
+            nn.LeakyReLU(LRELU_SLOPE),
+            WNConvTranspose1d(
+                in_channels=2 * out_channels,
+                out_channels=out_channels,
+                kernel_size=2 * stride,
+                stride=stride,
+                padding=stride // 2,
+                # bias=False,
+            ),
+        )
+
+    def forward(self, x, encoder_output=None):
+        if encoder_output is not None:
+            x = x + encoder_output
+        out = self.mrf(self.conv_trans(x))
+        return out
+
+
+class HXNet(nn.Module):
+    def __init__(
+        self,
+        original_sr: int = 8000,
+        target_sr: int = 16000,
+        kernel_size: int = 7,
+        block_channels: tp.Tuple[int] = (8, 16, 32, 64, 128),
+        latent_channel: int = 128,
+        block_strides: tp.Tuple[int] = (2, 2, 8, 8),
+        mrf_kernel_size: tp.Tuple[int] = (3, 7, 11),
+        dilation: tp.Tuple[tp.Tuple[int]] = ((1, 3, 5), (1, 3, 5), (1, 3, 5)),
+    ):
+        """U-net structure for time-domain bandwidth expansion network, where
+        the decoder structure is derived from the same upsampling + MRF
+        structure as in HiFiGAN, with encoder and decoder symmetry.
 
         Args:
-            in_channels (int): number of input tensor channels.
-            out_channels (int): number of output tensor channels.
-            resblock_type (str): type of the `ResBlock`. '1' or '2'.
-            resblock_dilation_sizes (List[List[int]]): list of dilation values in each layer of a `ResBlock`.
-            resblock_kernel_sizes (List[int]): list of kernel sizes for each `ResBlock`.
-            upsample_kernel_sizes (List[int]): list of kernel sizes for each transposed convolution.
-            upsample_initial_channel (int): number of channels for the first upsampling layer. This is divided by 2
-                for each consecutive upsampling layer.
-            upsample_factors (List[int]): upsampling factors (stride) for each upsampling layer.
-            inference_padding (int): constant padding applied to the input at inference time. Defaults to 5.
+            original_sr (int, optional): Original sample rate. Defaults to 8000.
+            target_sr (int, optional): Target sample rate. Defaults to 16000.
+            kernel_size (int, optional): The kernel size of the convolutional
+                layers on both sides of the encoder and decoder. Defaults to 7.
+            block_channels (tp.Tuple[int], optional): Number of channels in
+                upsampling and downsampling. Defaults to (8, 16, 32, 64, 128).
+            latent_channel (int, optional): Number of latent channel.
+                Defaults to 128.
+            block_strides (tp.Tuple[int], optional): Strides in upsampling and
+                downsampling. Defaults to (2, 2, 8, 8).
+            mrf_kernel_size (tp.Tuple[int], optional): The kernel size in the
+                MRF. Defaults to (3, 7, 11).
+            dilation (tp.Tuple[tp.Tuple[int]], optional):The dilation in the
+                MRF. Defaults to ((1, 3, 5), (1, 3, 5), (1, 3, 5)).
         """
         super().__init__()
-        self.inference_padding = inference_padding
-        self.num_kernels = len(resblock_kernel_sizes)
-        self.num_upsamples = len(upsample_factors)
-        # initial upsampling layers
-        self.conv_pre = weight_norm(
-            Conv1d(in_channels, upsample_initial_channel, 7, 1, padding=3)
+        self.original_sr = original_sr
+        self.target_sr = target_sr
+
+        self.first_conv = WNConv1d(
+            in_channels=1,
+            out_channels=block_channels[0],
+            kernel_size=kernel_size,
+            padding="same",
+            # bias=False,
+            padding_mode="reflect",
         )
-        resblock = ResBlock1 if resblock_type == "1" else ResBlock2
-        # upsampling layers
-        self.ups = nn.ModuleList()
-        for i, (u, k) in enumerate(zip(upsample_factors, upsample_kernel_sizes)):
-            self.ups.append(
-                weight_norm(
-                    ConvTranspose1d(
-                        upsample_initial_channel // (2**i),
-                        upsample_initial_channel // (2 ** (i + 1)),
-                        k,
-                        u,
-                        padding=(k - u) // 2,
-                    )
+
+        self.encoder_blocks = nn.ModuleList(
+            [
+                EncBlock(
+                    out_channels=block_channels[i + 1],
+                    stride=block_strides[i],
+                    kernel_size=mrf_kernel_size,
+                    dilation=dilation,
                 )
-            )
-        # MRF blocks
-        self.resblocks = nn.ModuleList()
-        for i in range(len(self.ups)):
-            ch = upsample_initial_channel // (2 ** (i + 1))
-            for _, (k, d) in enumerate(
-                zip(resblock_kernel_sizes, resblock_dilation_sizes)
-            ):
-                self.resblocks.append(resblock(ch, k, d))
-        # post convolution layer
-        self.conv_post = weight_norm(
-            Conv1d(ch, out_channels, 7, 1, padding=3, bias=conv_post_bias)
+                for i in range(len(block_strides))
+            ]
         )
-        if cond_channels > 0:
-            self.cond_layer = nn.Conv1d(cond_channels, upsample_initial_channel, 1)
 
-        if not conv_pre_weight_norm:
-            remove_weight_norm(self.conv_pre)
+        self.latent_conv = nn.Sequential(
+            nn.LeakyReLU(LRELU_SLOPE),
+            WNConv1d(
+                in_channels=block_channels[-1],
+                out_channels=latent_channel,
+                kernel_size=kernel_size,
+                padding="same",
+                # bias=False,
+                padding_mode="reflect",
+            ),
+            nn.LeakyReLU(LRELU_SLOPE),
+            # This activation function may need to be ignored in neural coding
+            WNConv1d(
+                in_channels=latent_channel,
+                out_channels=block_channels[-1],
+                kernel_size=kernel_size,
+                padding="same",
+                # bias=False,
+                padding_mode="reflect",
+            ),
+        )
 
-        if not conv_post_weight_norm:
-            remove_weight_norm(self.conv_post)
+        self.decoder_blocks = nn.ModuleList(
+            [
+                DecBlock(
+                    out_channels=block_channels[-i - 2],
+                    stride=block_strides[-i - 1],
+                    kernel_size=mrf_kernel_size,
+                    dilation=dilation,
+                )
+                for i in range(len(block_strides))
+            ]
+        )
 
-    def forward(self, x, g=None):
+        self.last_conv = nn.Sequential(
+            nn.LeakyReLU(LRELU_SLOPE),
+            WNConv1d(
+                in_channels=block_channels[0],
+                out_channels=1,
+                kernel_size=kernel_size,
+                padding="same",
+                # bias=False,
+                padding_mode="reflect",
+            ),
+        )
+
+        self.final_activation = nn.Tanh()
+
+    def forward(self, speech: torch.Tensor) -> torch.Tensor:
         """
+        Forward pass of generator.
         Args:
-            x (Tensor): feature input tensor.
-            g (Tensor): global conditioning input tensor.
-
+            speech (torch.Tensor): low-resolution speech signal
         Returns:
-            Tensor: output waveform.
-
-        Shapes:
-            x: [B, C, T]
-            Tensor: [B, 1, T]
+            (torch.Tensor): estimated high-resolution speech signal
         """
-        o = self.conv_pre(x)
-        if hasattr(self, "cond_layer"):
-            o = o + self.cond_layer(g)
-        for i in range(self.num_upsamples):
-            o = F.leaky_relu(o, LRELU_SLOPE)
-            o = self.ups[i](o)
-            z_sum = None
-            for j in range(self.num_kernels):
-                if z_sum is None:
-                    z_sum = self.resblocks[i * self.num_kernels + j](o)
-                else:
-                    z_sum += self.resblocks[i * self.num_kernels + j](o)
-            o = z_sum / self.num_kernels
-        o = F.leaky_relu(o)
-        o = self.conv_post(o)
-        o = torch.tanh(o)
-        return o
+        speech = torchaudio.functional.resample(
+            speech, self.original_sr, self.target_sr
+        )
+
+        x = self.first_conv(speech)
+
+        encoder_outputs = [x]
+
+        for block in self.encoder_blocks:
+            x = block(x)
+            encoder_outputs.append(x)
+
+        x = self.latent_conv(x)
+
+        for idx, block in enumerate(self.decoder_blocks):
+            x = block(x, encoder_outputs[-idx - 1])
+
+        x = x + encoder_outputs[0]
+        x = self.last_conv(x)
+
+        estimated_speech = self.final_activation(x + speech)  # residual
+
+        return estimated_speech
+
+
+if __name__ == "__main__":
+    audio = torch.randn(1, 1, 12800)  # Batch, Channel, Length
+    net = HXNet()
+    net_total_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
+    print(f"net_total_params: {net_total_params*1e-6:.1f}M")
+    net_in = audio
+    net_out = net(net_in)
+    print(f"net_in.shape: {net_in.shape}")
+    print(f"net_out.shape: {net_out.shape} \n")

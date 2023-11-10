@@ -1,5 +1,5 @@
 device: cpu
-ckpt_path: /home/sturjw/Code/BandWidthExtension/results/Valentini/SEANet/8_16/baseline/save/CKPT+2023-11-07+20-07-57+00/generator.ckpt
+ckpt_path: /home/sturjw/Code/BandWidthExtension/results/Valentini/SEANet/8_16/baseline/save/CKPT+2023-11-10+00-13-11+00/generator.ckpt
 
 original_sr: 8000
 target_sr: 16000
