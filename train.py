@@ -399,7 +399,6 @@ if __name__ == "__main__":
     # Load best checkpoint (highest SISNR) for evaluation
     test_stats = nc_brain.evaluate(
         test_set=datasets["test"],
-        # max_key="sisnr",
+        min_key="lsd",
         test_loader_kwargs=hparams["test_dataloader_options"],
     )
-    # TODO: remove weight_norm in inference

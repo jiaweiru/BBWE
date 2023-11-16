@@ -2,6 +2,7 @@ from .crn import CRN
 from .gccrn import GCCRN
 from .seanet import SEANet
 from .aero import AERO
+from .hxnet import HXNet
 
 from .hifigan_discriminator import HifiganDiscriminator
 from .melgan_discriminator import MelganMultiscaleDiscriminator

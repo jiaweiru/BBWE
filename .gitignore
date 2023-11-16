@@ -4,3 +4,5 @@ hparams
 cccc.py
 **.pyc
 **.wav
+**.flac
+**.th

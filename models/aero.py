@@ -747,7 +747,7 @@ class AERO(nn.Module):
         context=1,
         context_enc=0,
         freq_ends=4,
-        enc_freq_attn=4,
+        enc_freq_attn=0,
         # Normalization
         norm_starts=2,
         norm_groups=4,
@@ -765,6 +765,7 @@ class AERO(nn.Module):
         hr_sr=16000,
         spec_upsample=True,
         act_func="snake",
+        debug=False,
     ):
         """
         Args:
@@ -805,6 +806,7 @@ class AERO(nn.Module):
             hr_sr: target high-resolution sample-rate
             spec_upsample: if true, upsamples in the spectral domain, otherwise performs sinc-interpolation beforehand
             act_func: 'snake'/'relu'
+            debug: if true, prints out input dimensions throughout model layers.
         """
         super().__init__()
         self.cac = cac
@@ -829,6 +831,7 @@ class AERO(nn.Module):
         self.freq_emb = None
         self.hybrid = hybrid
         self.hybrid_old = hybrid_old
+        self.debug = debug
 
         self.encoder = nn.ModuleList()
         self.decoder = nn.ModuleList()

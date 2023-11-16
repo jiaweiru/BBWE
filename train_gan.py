@@ -47,16 +47,24 @@ class BWEBrain(sb.Brain):
         hr_samples = hr_wav.shape[-1]
         p = self.hparams.hop_len // (self.hparams.target_sr // self.hparams.original_sr)
         padding_len = (p - (lr_samples % p)) % p
-        lr_wav = F.pad(lr_wav, (0, padding_len), "constant")
+        lr_wav_pad = F.pad(lr_wav, (0, padding_len), "constant")
 
         # model forward
-        sr_wav = self.modules.generator(lr_wav)
+        sr_wav = self.modules.generator(lr_wav_pad)
 
         # Trimming
         sr_wav = sr_wav[:, :, :hr_samples]
 
-        scores_fake, feats_fake = self.modules.discriminator(sr_wav.detach())
-        scores_real, feats_real = self.modules.discriminator(hr_wav)
+        if self.hparams.res_disc:
+            scores_fake, feats_fake = self.modules.discriminator(
+                self.compute_res(sr_wav, lr_wav).detach()
+            )
+            scores_real, feats_real = self.modules.discriminator(
+                self.compute_res(hr_wav, lr_wav)
+            )
+        else:
+            scores_fake, feats_fake = self.modules.discriminator(sr_wav.detach())
+            scores_real, feats_real = self.modules.discriminator(hr_wav)
 
         return (sr_wav, scores_fake, feats_fake, scores_real, feats_real)
 
@@ -171,6 +179,9 @@ class BWEBrain(sb.Brain):
         """
         batch = batch.to(self.device)
         hr_wav, _ = batch.hr_wav
+        lr_wav, _ = batch.lr_wav
+        if len(lr_wav.shape) == 2:
+            lr_wav = lr_wav.unsqueeze(1)
         if len(hr_wav.shape) == 2:
             hr_wav = hr_wav.unsqueeze(1)
         outputs = self.compute_forward(batch, sb.Stage.TRAIN)
@@ -183,8 +194,16 @@ class BWEBrain(sb.Brain):
         self.optimizer_d.step()
 
         # Update adv value for generator training
-        scores_fake, feats_fake = self.modules.discriminator(sr_wav)
-        scores_real, feats_real = self.modules.discriminator(hr_wav)
+        if self.hparams.res_disc:
+            scores_fake, feats_fake = self.modules.discriminator(
+                self.compute_res(sr_wav, lr_wav)
+            )
+            scores_real, feats_real = self.modules.discriminator(
+                self.compute_res(hr_wav, lr_wav)
+            )
+        else:
+            scores_fake, feats_fake = self.modules.discriminator(sr_wav)
+            scores_real, feats_real = self.modules.discriminator(hr_wav)
         outputs = (sr_wav, scores_fake, feats_fake, scores_real, feats_real)
 
         # Then train the generator
@@ -344,6 +363,12 @@ class BWEBrain(sb.Brain):
                 test_stats=test_stats,
             )
 
+    def compute_res(self, wav, lp_wav):
+        up_wav = torchaudio.functional.resample(
+            lp_wav, self.hparams.original_sr, self.hparams.target_sr
+        )
+        return wav - up_wav
+
 
 def dataio_prep(hparams):
     """
@@ -491,6 +516,7 @@ if __name__ == "__main__":
     # Load best checkpoint (highest SISNR) for evaluation
     test_stats = nc_brain.evaluate(
         test_set=datasets["test"],
-        # max_key="sisnr",
+        min_key="lsd",
         test_loader_kwargs=hparams["test_dataloader_options"],
     )
+    # TODO: remove weight_norm in inference
