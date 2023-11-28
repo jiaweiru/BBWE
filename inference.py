@@ -10,13 +10,18 @@ from models import LSD, ViSQOL
 
 
 class BandWideExtension(Pretrained):
-    MODULES_NEEDED = ["model", "original_sr", "target_sr"]
+    MODULES_NEEDED = ["model", "original_sr", "target_sr", "hop_len"]
 
     def sr_batch(self, lr_wav):
         """Super-resolution a batch of low-resolution waveforms."""
 
         lr_wav = lr_wav.to(self.device)
+        lr_samples = lr_wav.shape[-1]
+        p = self.hparams.hop_len // (self.hparams.target_sr // self.hparams.original_sr)
+        padding_len = (p - (lr_samples % p)) % p
+        lr_wav = F.pad(lr_wav, (0, padding_len), "constant")
         sr_wav = self.mods.bwe_model(lr_wav)
+        sr_wav = sr_wav[..., : lr_samples * 2]
 
         return sr_wav
 
@@ -122,7 +127,7 @@ if __name__ == "__main__":
     # SB style inference
     inferencer = BandWideExtension.from_hparams(
         source="./pretrained",
-        hparams_file="seanet_inference.yaml",
+        hparams_file="inference.yaml",
         savedir="./pretrained",
     )
     inferencer.sr_file("test_lr.wav", "test_sr.wav")
