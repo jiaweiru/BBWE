@@ -7,7 +7,7 @@ from .hxnet import HXNet
 from .hifigan_discriminator import HifiganDiscriminator
 from .melgan_discriminator import MelganMultiscaleDiscriminator
 from .univnet_discriminator import UnivnetDiscriminator
-from .harmonic_discriminator import HarmonicWaveGANDiscriminator
+from .harmonic_discriminator import HXDiscriminator
 
 from .losses import (
     MagLoss,
