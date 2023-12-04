@@ -124,14 +124,14 @@ class AEROInferencer:
 
 
 if __name__ == "__main__":
-    # SB style inference
-    inferencer = BandWideExtension.from_hparams(
-        source="./pretrained",
-        hparams_file="inference.yaml",
-        savedir="./pretrained",
-    )
-    inferencer.sr_file("test_lr.wav", "test_sr.wav")
-
-    # # AERO inference
-    # inferencer = AEROInferencer("pretrained/aero-nfft=512-hl=64.th", device="cuda:0")
+    # # SB style inference
+    # inferencer = BandWideExtension.from_hparams(
+    #     source="./pretrained",
+    #     hparams_file="inference.yaml",
+    #     savedir="./pretrained",
+    # )
     # inferencer.sr_file("test_lr.wav", "test_sr.wav")
+
+    # AERO inference
+    inferencer = AEROInferencer("pretrained/aero-nfft=512-hl=64.th", device="cuda:3")
+    inferencer.evaluate("json/vctk_valid_8_16_new.json", "/home/sturjw/Datasets/VCTK")

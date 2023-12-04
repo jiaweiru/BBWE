@@ -3,6 +3,188 @@ import numpy as np
 import interp_same as IS
 from torch import nn
 from torch.nn import functional as F
+from torch.nn.utils import weight_norm
+
+
+def WNConv1d(*args, **kwargs):
+    return weight_norm(nn.Conv1d(*args, **kwargs))
+
+
+def WNConv2d(*args, **kwargs):
+    return weight_norm(nn.Conv2d(*args, **kwargs))
+
+
+def WNHConv2d(*args, **kwargs):
+    return weight_norm(SingleLogHarmonicConv2d(*args, **kwargs), "lowered_weight")
+
+
+class TimeDomainDiscriminator(nn.Module):
+    """PWGAN discriminator as in https://arxiv.org/abs/1910.11480.
+    It classifies each audio window real/fake and returns a sequence
+    of predictions.
+        It is a stack of convolutional blocks with dilation.
+    """
+
+    def __init__(
+        self,
+        in_channels=1,
+        out_channels=1,
+        kernel_size=3,
+        num_layers=10,
+        conv_channels=64,
+        dilation_factor=1,
+        nonlinear_activation="LeakyReLU",
+        nonlinear_activation_params={"negative_slope": 0.2},
+        bias=True,
+    ):
+        super().__init__()
+        self.conv_layers = nn.ModuleList()
+        conv_in_channels = in_channels
+        for i in range(num_layers - 1):
+            if i == 0:
+                dilation = 1
+            else:
+                dilation = i if dilation_factor == 1 else dilation_factor**i
+                conv_in_channels = conv_channels
+            padding = (kernel_size - 1) // 2 * dilation
+            conv_layer = [
+                WNConv1d(
+                    conv_in_channels,
+                    conv_channels,
+                    kernel_size=kernel_size,
+                    padding=padding,
+                    dilation=dilation,
+                    bias=bias,
+                ),
+                getattr(nn, nonlinear_activation)(
+                    inplace=True, **nonlinear_activation_params
+                ),
+            ]
+            self.conv_layers += conv_layer
+        padding = (kernel_size - 1) // 2
+        last_conv_layer = WNConv1d(
+            conv_in_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            padding=padding,
+            bias=bias,
+        )
+
+        self.conv_layers += [last_conv_layer]
+
+    def forward(self, x):
+        feats = []
+        for f in self.conv_layers:
+            x = f(x)
+            feats.append(x)
+        x = torch.flatten(x, 1, -1)
+        return [x], [feats]
+
+
+class HarmonicStructureDiscriminator(nn.Module):
+    def __init__(
+        self,
+        fft_size=512,
+        hop_length=256,
+        win_length=512,
+        in_channels=2,
+        out_channels=1,
+        kernel_size_h=7,
+        anchor=7,
+        kernel_size_c=3,
+        num_layers=10,
+        conv_channels=64,
+        dilation_factor=1,
+        nonlinear_activation="LeakyReLU",
+        nonlinear_activation_params={"negative_slope": 0.2},
+        bias=True,
+    ):
+        super().__init__()
+        self.fft_size = fft_size
+        self.hop_length = hop_length
+        self.win_length = win_length
+        self.conv_layers = nn.ModuleList()
+        conv_in_channels = in_channels
+        for i in range(num_layers - 1):
+            if i == 0:
+                dilation = 1
+                padding = (kernel_size_h - 1) // 2 * dilation
+                conv_layer = [
+                    WNHConv2d(
+                        conv_in_channels,
+                        conv_channels,
+                        kernel_size=kernel_size_h,
+                        anchor=anchor,
+                        padding=padding,
+                        dilation=dilation,
+                        bias=bias,
+                    ),
+                    getattr(nn, nonlinear_activation)(
+                        inplace=True, **nonlinear_activation_params
+                    ),
+                ]
+                self.conv_layers += conv_layer
+            else:
+                dilation = i if dilation_factor == 1 else dilation_factor**i
+                conv_in_channels = conv_channels
+                padding = (kernel_size_c - 1) // 2 * dilation
+                conv_layer = [
+                    WNConv2d(
+                        conv_in_channels,
+                        conv_channels,
+                        kernel_size=kernel_size_c,
+                        padding=padding,
+                        dilation=dilation,
+                        bias=bias,
+                    ),
+                    getattr(nn, nonlinear_activation)(
+                        inplace=True, **nonlinear_activation_params
+                    ),
+                ]
+                self.conv_layers += conv_layer
+        padding = (kernel_size_c - 1) // 2
+        last_conv_layer = WNConv2d(
+            conv_in_channels,
+            out_channels,
+            kernel_size=kernel_size_c,
+            padding=padding,
+            bias=bias,
+        )
+        self.conv_layers += [last_conv_layer]
+
+    def forward(self, x):
+        feats = []
+        x = torch.stft(
+            x.squeeze(1),
+            self.fft_size,
+            self.hop_length,
+            self.win_length,
+            torch.hann_window(self.win_length).to(x.device),
+            center=True,
+            pad_mode="reflect",
+            normalized=False,
+            return_complex=True,
+        )
+        x = torch.stack([x.real, x.imag], dim=1)
+        for f in self.conv_layers:
+            x = f(x)
+            feats.append(x)
+        x = torch.flatten(x, 1, -1)
+        return [x], [feats]
+
+
+class HarmonicWaveGANDiscriminator(nn.Module):
+    """HiFiGAN discriminator wrapping MPD and MSD."""
+
+    def __init__(self):
+        super().__init__()
+        self.tdd = TimeDomainDiscriminator()
+        self.hsd = HarmonicStructureDiscriminator()
+
+    def forward(self, x):
+        scores, feats = self.tdd(x)
+        scores_, feats_ = self.hsd(x)
+        return scores + scores_, feats + feats_
 
 
 class ShiftF(torch.autograd.Function):

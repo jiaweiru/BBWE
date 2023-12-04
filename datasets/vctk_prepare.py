@@ -22,8 +22,6 @@ VCTK_URL = "https://datashare.ed.ac.uk/bitstream/handle/10283/3443/VCTK-Corpus-0
 # Dataset split follows NU-Wave, NU-Wave2, AERO ...
 OMIT_SPECIFIED = ["p280", "p315"]
 VALID_SPECIFIED = [
-    "p347",
-    "p351",
     "p360",
     "p361",
     "p362",
@@ -34,8 +32,6 @@ VALID_SPECIFIED = [
     "s5",
 ]
 TEST_SPECIFIED = [
-    "p347",
-    "p351",
     "p360",
     "p361",
     "p362",
