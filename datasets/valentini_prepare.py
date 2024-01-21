@@ -198,6 +198,7 @@ def resample_torchaudio(input_dir: Path, output_dir: Path, target_sr: int):
         return
     resampler = Resample(orig_freq=sig_sr, new_freq=target_sr)
     resampled_signal = resampler(signal)
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
     torchaudio.save(
         output_dir, resampled_signal, sample_rate=target_sr, bits_per_sample=16
     )
