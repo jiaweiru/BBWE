@@ -1,0 +1,158 @@
+seed: 1234
+__set_seed: !!python/object/apply:torch.manual_seed [!ref <seed>]
+
+original_sr: 8000
+target_sr: 16000
+
+# corpus: Valentini
+# data_folder: /home/sturjw/Datasets/Valentini/BWE
+# json_folder: json
+# train_annotation: !ref <json_folder>/valentini_train_8_16.json
+# valid_annotation: !ref <json_folder>/valentini_valid_8_16.json
+# test_annotation: !ref <json_folder>/valentini_test_8_16.json
+corpus: VCTK
+data_folder: /home/sturjw/Datasets/VCTK
+json_folder: json
+train_annotation: !ref <json_folder>/vctk_train_8_16.json
+valid_annotation: !ref <json_folder>/vctk_valid_8_16.json
+test_annotation: !ref <json_folder>/vctk_test_8_16.json
+
+output_folder: results/VCTK/AERO/8_16/v1
+save_folder: !ref <output_folder>/save
+samples_folder: !ref <output_folder>/test_samples
+
+train_log: !ref <output_folder>/train_log.txt
+tensorboard_logs: !ref <output_folder>/tb_logs
+
+train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
+    save_file: !ref <train_log>
+tensorboard_train_logger: !new:speechbrain.utils.train_logger.TensorboardLogger
+    save_dir: !ref <tensorboard_logs>
+
+fft_len: 512
+win_inc: 64
+
+# Training Parameters
+number_of_epochs: 200
+hop_len: !ref <win_inc>
+batch_size: 16
+segment_length: 16000 # for 2 seconds
+learning_rate: 0.0003
+adam_b1: 0.9
+adam_b2: 0.999
+# segment_length: 8192
+# learning_rate: 0.0001
+# adam_b1: 0.5
+# adam_b2: 0.9
+max_grad_norm: 5.0
+keep_checkpoint_interval: 10
+res_disc: False
+
+# Test stage:
+# Visualize and save the first few audios
+log_save: 10
+pesq_n_jobs: 1
+
+train_dataloader_options:
+    batch_size: !ref <batch_size>
+    shuffle: True
+    num_workers: 8
+
+valid_dataloader_options:
+    batch_size: 1
+    shuffle: False
+    num_workers: 8
+
+test_dataloader_options:
+    batch_size: 1
+    shuffle: False
+    num_workers: 8
+
+# Losses
+generator_loss: !new:models.AEROGeneratorLoss
+discriminator_loss: !new:models.SEANetDiscriminatorLoss
+
+# Metrics
+lsd: !new:models.LSD
+    fft_len: 2048
+    win_inc: 512
+    win_len: 2048
+    win_fn: !name:torch.hann_window
+visqol: !new:models.ViSQOL
+g_adv_loss_func: !new:models.HingeGLoss
+d_adv_loss_func: !new:models.HingeDLoss
+g_adv_loss: !name:models.G_adv_loss
+    loss_func: !ref <g_adv_loss_func>
+d_adv_loss_real: !name:models.D_loss_real
+    loss_func: !ref <d_adv_loss_func>
+d_adv_loss_fake: !name:models.D_loss_fake
+    loss_func: !ref <d_adv_loss_func>
+fm_loss: !new:models.FeatureLoss
+# No tracking of stft loss
+# stft_loss: !new:models.MultiScaleSTFTLoss
+
+generator: !new:models.AERO
+    in_channels: 1
+    out_channels: 1
+    # Channels
+    channels: 48
+    growth: 2
+    # STFT
+    nfft: !ref <fft_len>
+    hop_length: !ref <win_inc>
+    end_iters: 0
+    cac: true
+    # Main structure
+    rewrite: true
+    hybrid: false
+    hybrid_old: false
+    # Frequency Branch
+    freq_emb: 0.2
+    emb_scale: 10
+    emb_smooth: true
+    # Convolutions
+    kernel_size: 8
+    strides: [4, 4, 2, 2]
+    context: 1
+    context_enc: 0
+    freq_ends: 4
+    enc_freq_attn: 0
+    # normalization
+    norm_starts: 2
+    norm_groups: 4
+    # DConv residual branch
+    dconv_mode: 1
+    dconv_depth: 2
+    dconv_comp: 4
+    dconv_time_attn: 2
+    dconv_lstm: 2
+    dconv_init: 1e-3
+    # Weight init
+    rescale: 0.1
+    lr_sr: !ref <original_sr>
+    hr_sr: !ref <target_sr>
+    spec_upsample: true
+    act_func: snake
+discriminator: !new:models.MelganMultiscaleDiscriminator
+
+epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
+    limit: !ref <number_of_epochs>
+
+modules:
+    generator: !ref <generator>
+    discriminator: !ref <discriminator>
+
+opt_class_generator: !name:torch.optim.Adam
+    lr: !ref <learning_rate>
+    betas: [!ref <adam_b1>, !ref <adam_b2>]
+
+opt_class_discriminator: !name:torch.optim.Adam
+    lr: !ref <learning_rate>
+    betas: [!ref <adam_b1>, !ref <adam_b2>]
+
+checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
+    checkpoints_dir: !ref <save_folder>
+    recoverables:
+        generator: !ref <generator>
+        discriminator: !ref <discriminator>
+        counter: !ref <epoch_counter>

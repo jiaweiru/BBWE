@@ -1,0 +1,112 @@
+seed: 1234
+__set_seed: !!python/object/apply:torch.manual_seed [!ref <seed>]
+
+original_sr: 8000
+target_sr: 16000
+
+corpus: Valentini
+data_folder: /home/sturjw/Datasets/Valentini/BWE
+json_folder: json
+train_annotation: !ref <json_folder>/valentini_train_8_16.json
+valid_annotation: !ref <json_folder>/valentini_valid_8_16.json
+test_annotation: !ref <json_folder>/valentini_test_8_16.json
+# corpus: VCTK
+# data_folder: /home/sturjw/Datasets/VCTK
+# json_folder: json
+# train_annotation: !ref <json_folder>/vctk_train_8_16.json
+# valid_annotation: !ref <json_folder>/vctk_valid_8_16.json
+# test_annotation: !ref <json_folder>/vctk_test_8_16.json
+
+output_folder: results/Valentini/GCCRN/8_16/no_adv
+save_folder: !ref <output_folder>/save
+samples_folder: !ref <output_folder>/test_samples
+
+train_log: !ref <output_folder>/train_log.txt
+tensorboard_logs: !ref <output_folder>/tb_logs
+
+train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
+    save_file: !ref <train_log>
+tensorboard_train_logger: !new:speechbrain.utils.train_logger.TensorboardLogger
+    save_dir: !ref <tensorboard_logs>
+
+# FFT parameters
+fft_len: 320
+win_inc: 160
+win_len: 320
+win_fn: !name:torch.hann_window
+alpha: 0.3
+
+# Training Parameters
+number_of_epochs: 200
+segment_length: 8192
+batch_size: 32
+learning_rate: 0.001
+max_grad_norm: 5.0
+keep_checkpoint_interval: 10
+
+# Test stage:
+# Visualize and save the first few audios
+log_save: 10
+pesq_n_jobs: 1
+
+train_dataloader_options:
+    batch_size: !ref <batch_size>
+    shuffle: True
+    num_workers: 8
+
+valid_dataloader_options:
+    batch_size: 1
+    shuffle: False
+    num_workers: 8
+
+test_dataloader_options:
+    batch_size: 1
+    shuffle: False
+    num_workers: 8
+
+# Losses
+loss: !new:models.MagRILoss
+    fft_len: !ref <fft_len>
+    win_inc: !ref <win_inc>
+    win_len: !ref <win_len>
+    win_fn: !ref <win_fn>
+    alpha: !ref <alpha>
+    loss_tp: l2
+
+# Metrics
+lsd: !new:models.LSD
+    fft_len: 2048
+    win_inc: 512
+    win_len: 2048
+    win_fn: !name:torch.hann_window
+visqol: !new:models.ViSQOL
+
+model: !new:models.GCCRN
+    origin_sr: !ref <original_sr>
+    new_sr: !ref <target_sr>
+    fft_len: !ref <fft_len>
+    win_inc: !ref <win_inc>
+    win_len: !ref <win_len>
+    alpha: !ref <alpha>
+    res: True
+
+epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
+    limit: !ref <number_of_epochs>
+
+modules:
+    model: !ref <model>
+
+opt_class: !name:torch.optim.Adam
+    lr: !ref <learning_rate>
+
+sched: False
+lr_scheduler: !new:speechbrain.nnet.schedulers.ReduceLROnPlateau
+    factor: 0.9
+    patience: 3
+    dont_halve_until_epoch: 0
+
+checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
+    checkpoints_dir: !ref <save_folder>
+    recoverables:
+        model: !ref <model>
+        counter: !ref <epoch_counter>
