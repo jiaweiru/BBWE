@@ -124,7 +124,7 @@ class AEROInferencer:
 
 
 if __name__ == "__main__":
-    # # SB style inference
+    # SB style inference
     inferencer = BandWideExtension.from_hparams(
         source="./pretrained",
         hparams_file="inference.yaml",
