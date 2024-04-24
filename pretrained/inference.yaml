@@ -1,9 +1,9 @@
 device: cpu
-ckpt_path: results/Archived/VCTK/CRN/8_16/baseline/save/CKPT+2023-10-27+15-10-31+00/model.ckpt
+ckpt_path: results/Valentini/GCCRN/8_16/adv_melgan/save/CKPT+2024-03-08+06-40-31+00/generator.ckpt
 
 original_sr: 8000
 target_sr: 16000
-hop_len: 256
+hop_len: 160
 
 # model: !new:models.SEANet
 #     original_sr: !ref <original_sr>
@@ -56,13 +56,22 @@ hop_len: 256
 #     spec_upsample: true
 #     act_func: snake
 
-model: !new:models.CRN
-    original_sr: !ref <original_sr>
-    target_sr: !ref <target_sr>
-    win_len: 512
-    win_inc: 256
-    fft_len: 512
-    win_fn: !name:torch.hann_window
+# model: !new:models.CRN
+#     original_sr: !ref <original_sr>
+#     target_sr: !ref <target_sr>
+#     win_len: 512
+#     win_inc: 256
+#     fft_len: 512
+#     win_fn: !name:torch.hann_window
+
+model: !new:models.GCCRN
+    origin_sr: !ref <original_sr>
+    new_sr: !ref <target_sr>
+    fft_len: 320
+    win_inc: 160
+    win_len: 320
+    alpha: 0.3
+    res: True
 
 modules:
     bwe_model: !ref <model>

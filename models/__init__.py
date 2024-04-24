@@ -3,6 +3,7 @@ from .gccrn import GCCRN
 from .seanet import SEANet
 from .aero import AERO
 from .hxnet import HXNet
+from .dbben import DBBEN
 
 from .hifigan_discriminator import HifiganDiscriminator
 from .melgan_discriminator import MelganMultiscaleDiscriminator

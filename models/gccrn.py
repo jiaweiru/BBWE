@@ -13,7 +13,7 @@ class GLSTM(nn.Module):
         hidden_size=1024,
         groups=2,
     ):
-        super(GLSTM, self).__init__()
+        super().__init__()
 
         hidden_size_t = hidden_size // groups
 
@@ -62,7 +62,7 @@ class GLSTM(nn.Module):
 
 class GluConv2d(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride):
-        super(GluConv2d, self).__init__()
+        super().__init__()
         self.conv1 = nn.Conv2d(
             in_channels=in_channels,
             out_channels=out_channels,
@@ -89,7 +89,7 @@ class GluConvTranspose2d(nn.Module):
     def __init__(
         self, in_channels, out_channels, kernel_size, stride, output_padding=(0, 0)
     ):
-        super(GluConvTranspose2d, self).__init__()
+        super().__init__()
         self.conv1 = nn.ConvTranspose2d(
             in_channels=in_channels,
             out_channels=out_channels,
@@ -135,11 +135,23 @@ def power_comp(x, alpha=0.5):
 class GCCRN(nn.Module):
     # The GCCRN parameters are consistent with the original paper
     # and therefore only support upsampling to 16khz
-    def __init__(self, origin_sr=8000, new_sr=16000, alpha=0.5, res=True):
-        super(GCCRN, self).__init__()
+    def __init__(
+        self,
+        origin_sr=8000,
+        new_sr=16000,
+        fft_len=320,
+        win_inc=160,
+        win_len=320,
+        alpha=0.5,
+        res=True,
+    ):
+        super().__init__()
 
         self.origin_sr = origin_sr
         self.new_sr = new_sr
+        self.fft_len = fft_len
+        self.win_inc = win_inc
+        self.win_len = win_len
         self.alpha = alpha
         self.res = res
 
@@ -232,9 +244,9 @@ class GCCRN(nn.Module):
         speech = torch.squeeze(speech, dim=1)
         spec = torch.stft(
             speech,
-            320,
-            160,
-            320,
+            self.fft_len,
+            self.win_inc,
+            self.win_len,
             window=torch.hann_window(320).to(speech.device),
             center=True,
             pad_mode="reflect",
@@ -281,9 +293,9 @@ class GCCRN(nn.Module):
         est_spec = rearrange(est_spec, "b c t f -> (b c) f t", b=speech.shape[0])
         est_speech = torch.istft(
             est_spec,
-            320,
-            160,
-            320,
+            self.fft_len,
+            self.win_inc,
+            self.win_len,
             window=torch.hann_window(320).to(speech.device),
             center=True,
         )
