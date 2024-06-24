@@ -35,7 +35,7 @@ class BWEBrain(sb.Brain):
         batch = batch.to(self.device)
         lr_wav, _ = batch.lr_wav
         hr_wav, _ = batch.hr_wav
-        # Mono and stereo compatible
+
         if len(lr_wav.shape) == 2:
             lr_wav = lr_wav.unsqueeze(1)
         if len(hr_wav.shape) == 2:
@@ -55,16 +55,8 @@ class BWEBrain(sb.Brain):
         # Trimming
         sr_wav = sr_wav[:, :, :hr_samples]
 
-        if self.hparams.res_disc:
-            scores_fake, feats_fake = self.modules.discriminator(
-                self.compute_res(sr_wav, lr_wav).detach()
-            )
-            scores_real, feats_real = self.modules.discriminator(
-                self.compute_res(hr_wav, lr_wav)
-            )
-        else:
-            scores_fake, feats_fake = self.modules.discriminator(sr_wav.detach())
-            scores_real, feats_real = self.modules.discriminator(hr_wav)
+        scores_fake, feats_fake = self.modules.discriminator(sr_wav.detach())
+        scores_real, feats_real = self.modules.discriminator(hr_wav)
 
         return (sr_wav, scores_fake, feats_fake, scores_real, feats_real)
 
@@ -194,16 +186,8 @@ class BWEBrain(sb.Brain):
         self.optimizer_d.step()
 
         # Update adv value for generator training
-        if self.hparams.res_disc:
-            scores_fake, feats_fake = self.modules.discriminator(
-                self.compute_res(sr_wav, lr_wav)
-            )
-            scores_real, feats_real = self.modules.discriminator(
-                self.compute_res(hr_wav, lr_wav)
-            )
-        else:
-            scores_fake, feats_fake = self.modules.discriminator(sr_wav)
-            scores_real, feats_real = self.modules.discriminator(hr_wav)
+        scores_fake, feats_fake = self.modules.discriminator(sr_wav)
+        scores_real, feats_real = self.modules.discriminator(hr_wav)
         outputs = (sr_wav, scores_fake, feats_fake, scores_real, feats_real)
 
         # Then train the generator
@@ -340,12 +324,15 @@ class BWEBrain(sb.Brain):
                 meta={"epoch": epoch, **valid_stats},
                 end_of_epoch=True,
                 ckpt_predicate=(
-                    lambda ckpt: (
-                        ckpt.meta["epoch"] % self.hparams.keep_checkpoint_interval != 0
+                    (
+                        lambda ckpt: (
+                            ckpt.meta["epoch"] % self.hparams.keep_checkpoint_interval
+                            != 0
+                        )
                     )
-                )
-                if self.hparams.keep_checkpoint_interval is not None
-                else None,
+                    if self.hparams.keep_checkpoint_interval is not None
+                    else None
+                ),
             )
 
         # We also write statistics about test data to stdout and to the logfile.
@@ -362,12 +349,6 @@ class BWEBrain(sb.Brain):
                 {"Epoch loaded": self.hparams.epoch_counter.current},
                 test_stats=test_stats,
             )
-
-    def compute_res(self, wav, lp_wav):
-        up_wav = torchaudio.functional.resample(
-            lp_wav, self.hparams.original_sr, self.hparams.target_sr
-        )
-        return wav - up_wav
 
 
 def dataio_prep(hparams):

@@ -35,7 +35,7 @@ class BWEBrain(sb.Brain):
         batch = batch.to(self.device)
         lr_wav, lens = batch.lr_wav
         hr_wav, lens = batch.hr_wav
-        # Mono and stereo compatible
+
         if len(lr_wav.shape) == 2:
             lr_wav = lr_wav.unsqueeze(1)
 
@@ -232,12 +232,15 @@ class BWEBrain(sb.Brain):
                 meta={"epoch": epoch, **valid_stats},
                 end_of_epoch=True,
                 ckpt_predicate=(
-                    lambda ckpt: (
-                        ckpt.meta["epoch"] % self.hparams.keep_checkpoint_interval != 0
+                    (
+                        lambda ckpt: (
+                            ckpt.meta["epoch"] % self.hparams.keep_checkpoint_interval
+                            != 0
+                        )
                     )
-                )
-                if self.hparams.keep_checkpoint_interval is not None
-                else None,
+                    if self.hparams.keep_checkpoint_interval is not None
+                    else None
+                ),
             )
 
         # We also write statistics about test data to stdout and to the logfile.
