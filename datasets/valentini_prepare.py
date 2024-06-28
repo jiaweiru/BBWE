@@ -10,7 +10,7 @@ import typing as tp
 from tqdm import tqdm
 from pathlib import Path
 from joblib import Parallel, delayed
-from speechbrain.processing.speech_augmentation import Resample
+from speechbrain.augment.time_domain import Resample
 from speechbrain.utils.data_utils import get_all_files, download_file
 
 logger = logging.getLogger(__name__)

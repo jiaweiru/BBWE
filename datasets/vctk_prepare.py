@@ -5,14 +5,12 @@ import sox
 import json
 import logging
 import torchaudio
-import numpy as np
-import soundfile as sf
 import typing as tp
 import torch.nn.functional as F
 from tqdm import tqdm
 from pathlib import Path
 from joblib import Parallel, delayed
-from speechbrain.processing.speech_augmentation import Resample
+from speechbrain.augment.time_domain import Resample
 from speechbrain.utils.data_utils import get_all_files, download_file
 
 logger = logging.getLogger(__name__)

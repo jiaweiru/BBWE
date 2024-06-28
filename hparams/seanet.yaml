@@ -4,20 +4,20 @@ __set_seed: !!python/object/apply:torch.manual_seed [!ref <seed>]
 original_sr: 8000
 target_sr: 16000
 
-corpus: Valentini
-data_folder: /home/sturjw/Datasets/Valentini/BWE
-json_folder: json
-train_annotation: !ref <json_folder>/valentini_train_8_16.json
-valid_annotation: !ref <json_folder>/valentini_valid_8_16.json
-test_annotation: !ref <json_folder>/valentini_test_8_16.json
-# corpus: VCTK
-# data_folder: /home/sturjw/Datasets/VCTK
+# corpus: Valentini
+# data_folder: /home/sturjw/Datasets/Valentini/BWE
 # json_folder: json
-# train_annotation: !ref <json_folder>/vctk_train_8_16.json
-# valid_annotation: !ref <json_folder>/vctk_valid_8_16.json
-# test_annotation: !ref <json_folder>/vctk_test_8_16.json
+# train_annotation: !ref <json_folder>/valentini_train_8_16.json
+# valid_annotation: !ref <json_folder>/valentini_valid_8_16.json
+# test_annotation: !ref <json_folder>/valentini_test_8_16.json
+corpus: VCTK
+data_folder: /root/autodl-tmp/VCTK
+json_folder: json
+train_annotation: !ref <json_folder>/vctk_train_8_16.json
+valid_annotation: !ref <json_folder>/vctk_valid_8_16.json
+test_annotation: !ref <json_folder>/vctk_test_8_16.json
 
-output_folder: results/Valentini/SEANet/8_16_Re/baseline
+output_folder: results/VCTK/SEANet/8_16/baseline
 save_folder: !ref <output_folder>/save
 samples_folder: !ref <output_folder>/test_samples
 

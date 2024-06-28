@@ -219,6 +219,11 @@ class BWEBrain(sb.Brain):
                 self.checkpointer.add_recoverable("optimizer_g", self.optimizer_g)
                 self.checkpointer.add_recoverable("optimizer_d", self.optimizer_d)
 
+            self.optimizers_dict = {
+                "optimizer_g": self.optimizer_g,
+                "optimizer_d": self.optimizer_d,
+            }
+
     def on_stage_start(self, stage, epoch=None):
         """
         Gets called at the beginning of each epoch.

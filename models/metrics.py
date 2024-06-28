@@ -75,7 +75,7 @@ class ViSQOL(nn.Module):
 
         self.visqol_manager = visqol_lib_py.VisqolManager()
         self.visqol_manager.Init(
-            visqol_lib_py.FilePath(svr_model_path), use_speech_scoring, False, 60, True
+            visqol_lib_py.FilePath(svr_model_path), use_speech_scoring, False, 60, True, False, False
         )
 
     def forward(self, ref_wavs, est_wavs, reduction="mean"):
